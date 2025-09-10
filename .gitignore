@@ -1,0 +1,24 @@
+# 🔒 Gizli bilgileri asla commit etme
+.env
+
+# 🐍 Python cache dosyaları
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 📂 Loglar ve geçici dosyalar
+*.log
+*.tmp
+
+# 🗂️ Data klasörü (tweet history vs.)
+data/
+
+# 📦 Sanal ortam klasörü
+.venv/
+venv/
+
+# 💻 IDE ayarları
+.vscode/
+.idea/
+
