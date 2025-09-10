@@ -204,23 +204,19 @@ def compose_thread_gpt(item, hashtags, weekday):
     return [t1, t2, t3]
 
 # === Tweet gönderme ===
+# === Tweet gönderme ===
 def post_thread(texts):
-    client = tweepy.Client(
-        consumer_key=API_KEY,
-        consumer_secret=API_SECRET,
-        access_token=ACCESS_TOKEN,
-        access_token_secret=ACCESS_TOKEN_SECRET
-    )
-    first_id = None
-    last_id = None
-    for i, t in enumerate(texts):
+    tweet_id = None
+    for i, txt in enumerate(texts):
         if i == 0:
-            resp = client.create_tweet(text=t)
-            last_id = resp.data.get("id"); first_id = last_id
+            # İlk tweet
+            res = client.create_tweet(text=txt)
         else:
-            resp = client.create_tweet(text=t, reply={"in_reply_to_tweet_id": last_id})
-            last_id = resp.data.get("id")
-    return first_id
+            # Sonraki tweetler zincir şeklinde
+            res = client.create_tweet(text=txt, in_reply_to_tweet_id=tweet_id)
+        
+        tweet_id = res.data["id"]
+        print(f"✅ Tweet gönderildi! ID: {tweet_id}")
 
 # === Ana akış ===
 def main():
