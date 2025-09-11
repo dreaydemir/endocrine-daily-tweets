@@ -3,12 +3,13 @@ import os, json
 import requests
 import tweepy
 import pandas as pd
+import feedparser
 from xml.etree import ElementTree
 from openai import OpenAI
 from datetime import datetime, timedelta
-from themes import today_theme   # THEMES artık ayrı dosyada
+from themes import today_theme   # THEMES ayrı dosyada
 
-# .env yükle
+# .env load
 load_dotenv()
 
 # API Keys
@@ -18,7 +19,7 @@ ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
 ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# OpenAI ve Twitter Client
+# Clients
 client = OpenAI(api_key=OPENAI_API_KEY)
 auth_client = tweepy.Client(
     consumer_key=API_KEY,
@@ -31,25 +32,51 @@ auth_client = tweepy.Client(
 DRY_RUN = int(os.getenv("DRY_RUN", "1"))
 MAX_TWEETS = int(os.getenv("MAX_TWEETS", "1"))
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
+HISTORY_FILE = "data/history.json"
 
-# SCImago CSV yükle
+# SCImago CSV
 SCIMAGO_CSV = "scimago.csv"
 df = pd.read_csv(SCIMAGO_CSV, sep=";", encoding="utf-8", engine="python")
 df["Title_clean"] = df["Title"].str.lower().str.strip()
+
+# ----------------- History -----------------
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    return set()
+
+def save_history(history):
+    os.makedirs("data", exist_ok=True)
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(history), f, ensure_ascii=False, indent=2)
+
+# ----------------- ERP RSS -----------------
+def fetch_erp_articles():
+    url = "https://endocrinolrespract.org/current-issue/rss"
+    feed = feedparser.parse(url)
+
+    records = []
+    for entry in feed.entries:
+        records.append({
+            "title": entry.title,
+            "journal": "Endocrinology Research and Practice",
+            "abstract": entry.summary if "summary" in entry else "",
+            "link": entry.link,
+            "quartile": "Q4"
+        })
+    return records
 
 # ----------------- PubMed API -----------------
 def pubmed_search(query, retmax=10):
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 
-    # Tarih aralığını hesapla
+    # Date filter
     end_date = datetime.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
     date_range = f'("{start_date.strftime("%Y/%m/%d")}"[Date - Publication] : "{end_date.strftime("%Y/%m/%d")}"[Date - Publication])'
 
-    # PubMed sorgusu → query + tarih filtresi
     term = f"{query} AND {date_range}"
-
-    # 🔹 Debug çıktısı
     print(f"[PubMed] Query: {term}")
 
     params = {
@@ -89,7 +116,7 @@ def pubmed_fetch(pmids):
         })
     return records
 
-# ----------------- SCImago Filtreleme -----------------
+# ----------------- SCImago Filtering -----------------
 def filter_q_journals(pubmed_entries):
     filtered = []
     priority = []
@@ -110,7 +137,6 @@ def filter_q_journals(pubmed_entries):
                     "link": e["link"],
                     "abstract": e["abstract"]
                 }
-                # Öncelikli dergi
                 if "endocrinology research and practice" in journal_norm:
                     priority.append(record)
                 else:
@@ -118,7 +144,7 @@ def filter_q_journals(pubmed_entries):
 
     return priority + filtered
 
-# ----------------- GPT Özetleme -----------------
+# ----------------- GPT Summarization -----------------
 def summarize_with_gpt(title, abstract=""):
     prompt = f"""
 Summarize the endocrinology article.
@@ -135,16 +161,16 @@ Format as JSON:
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":prompt}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            response_format={"type":"json_object"}
+            response_format={"type": "json_object"}
         )
         return json.loads(resp.choices[0].message.content)
     except Exception as e:
         print("GPT summarization failed:", e)
-        return {"conclusion":"No conclusion","findings":[]}
+        return {"conclusion": "No conclusion", "findings": []}
 
-# ----------------- Tweet Yapıcı -----------------
+# ----------------- Tweet Builder -----------------
 def build_tweet(title, summary, findings, url, hashtags):
     text = f"📑 {title.upper()}\n\n"
     if summary:
@@ -154,17 +180,29 @@ def build_tweet(title, summary, findings, url, hashtags):
     text += f"\n🔗 {url}\n{' '.join(hashtags)}"
     return text
 
-# ----------------- Ana Fonksiyon -----------------
+# ----------------- Main -----------------
 def main():
     theme_query, hashtags = today_theme()
     print(f"[theme] {theme_query} | tags={hashtags}")
 
-    pmids = pubmed_search(theme_query, retmax=MAX_TWEETS*5)
-    records = pubmed_fetch(pmids)
-    q_records = filter_q_journals(records)[:MAX_TWEETS]
+    history = load_history()
+
+    # 1. Check ERP first
+    erp_records = fetch_erp_articles()
+    new_erp = [r for r in erp_records if r["link"] not in history]
+
+    if new_erp:
+        print("[ERP] Found new ERP article(s)")
+        q_records = new_erp[:MAX_TWEETS]
+    else:
+        # 2. If no new ERP → go to PubMed
+        pmids = pubmed_search(theme_query, retmax=MAX_TWEETS*5)
+        records = pubmed_fetch(pmids)
+        q_records = filter_q_journals(records)[:MAX_TWEETS]
+        q_records = [r for r in q_records if r["link"] not in history]
 
     for e in q_records:
-        gpt = summarize_with_gpt(e["title"], e["abstract"])
+        gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
         tweet_text = build_tweet(e["title"], gpt["conclusion"], gpt["findings"], e["link"], hashtags)
 
         print("\n--- Tweet Preview ---\n")
@@ -174,9 +212,11 @@ def main():
         if DRY_RUN == 0:
             try:
                 res = auth_client.create_tweet(text=tweet_text)
-                print(f"✅ Tweet gönderildi! ID: {res.data['id']}")
+                print(f"✅ Tweet sent! ID: {res.data['id']}")
+                history.add(e["link"])
+                save_history(history)
             except Exception as e:
-                print(f"❌ Tweet gönderilemedi: {e}")
+                print(f"❌ Failed to tweet: {e}")
 
 if __name__ == "__main__":
     main()
