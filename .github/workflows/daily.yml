@@ -34,5 +34,5 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DRY_RUN: "0"
           MAX_TWEETS: "1"
-          LOOKBACK_DAYS: "30"
+          LOOKBACK_DAYS: "90"
         run: python app.py
