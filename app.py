@@ -7,7 +7,8 @@ import feedparser
 from xml.etree import ElementTree
 from openai import OpenAI
 from datetime import datetime, timedelta
-from themes import today_theme   # THEMES ayrı dosyada
+from themes import today_theme  # THEMES ayrı dosyada
+import random
 
 # .env load
 load_dotenv()
@@ -33,6 +34,7 @@ DRY_RUN = int(os.getenv("DRY_RUN", "1"))
 MAX_TWEETS = int(os.getenv("MAX_TWEETS", "1"))
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
 HISTORY_FILE = "data/history.json"
+MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", str(MAX_TWEETS * 5)))  # Kaç aday çekilsin
 
 # SCImago CSV
 SCIMAGO_CSV = "scimago.csv"
@@ -47,7 +49,7 @@ def load_history():
     return set()
 
 def save_history(history):
-    os.makedirs("data", exist_ok=True)
+    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(list(history), f, ensure_ascii=False, indent=2)
 
@@ -87,7 +89,6 @@ def resolve_doi(doi):
 def pubmed_search(query, retmax=10):
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 
-    # Date filter
     end_date = datetime.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
     date_range = f'("{start_date.strftime("%Y/%m/%d")}"[Date - Publication] : "{end_date.strftime("%Y/%m/%d")}"[Date - Publication])'
@@ -107,6 +108,8 @@ def pubmed_search(query, retmax=10):
     return r.json()["esearchresult"]["idlist"]
 
 def pubmed_fetch(pmids, history):
+    if not pmids:
+        return []
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
     params = {
         "db": "pubmed",
@@ -218,16 +221,30 @@ def main():
 
     # 1. ERP first
     erp_records = fetch_erp_articles(history)
+
     if erp_records:
-        print("[ERP] Found new ERP article(s)")
-        q_records = erp_records[:MAX_TWEETS]
+        print(f"[ERP] Found {len(erp_records)} new ERP article(s)")
+        # rastgele seç
+        q_records = random.sample(erp_records, min(MAX_TWEETS, len(erp_records)))
     else:
-        # 2. Else PubMed
-        pmids = pubmed_search(theme_query, retmax=MAX_TWEETS*5)
+        # PubMed kısmı
+        pmids = pubmed_search(theme_query, retmax=MAX_CANDIDATES)
         records = pubmed_fetch(pmids, history)
-        q_records = filter_q_journals(records, history)[:MAX_TWEETS]
+        filtered = filter_q_journals(records, history)
+        if filtered:
+            q_records = random.sample(filtered, min(MAX_TWEETS, len(filtered)))
+        else:
+            q_records = []
+
+    if not q_records:
+        print("[Main] No new records found. Exiting.")
+        return
 
     for e in q_records:
+        # History’yi önce güncelle ki aynı işlem tekrar seçilmesin
+        history.add(e["link"])
+        save_history(history)
+
         gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
         tweet_text = build_tweet(e["title"], gpt["conclusion"], gpt["findings"], e["link"], hashtags)
 
@@ -239,8 +256,6 @@ def main():
             try:
                 res = auth_client.create_tweet(text=tweet_text)
                 print(f"✅ Tweet sent! ID: {res.data['id']}")
-                history.add(e["link"])
-                save_history(history)
             except Exception as e:
                 print(f"❌ Failed to tweet: {e}")
 
