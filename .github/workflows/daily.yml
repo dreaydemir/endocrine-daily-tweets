@@ -33,6 +33,6 @@ jobs:
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DRY_RUN: "1"
-          MAX_TWEETS: "1"
+          MAX_TWEETS: "3"
           LOOKBACK_DAYS: "90"
         run: python app.py
