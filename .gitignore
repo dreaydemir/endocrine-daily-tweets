@@ -11,7 +11,7 @@ __pycache__/
 *.log
 *.tmp
 
-# 🗂️ Data klasörü (tweet history vs.)
+# 🗂️ Data klasörü (ör: tweet history, cache vs.)
 data/
 
 # 📦 Sanal ortam klasörü
@@ -21,4 +21,3 @@ venv/
 # 💻 IDE ayarları
 .vscode/
 .idea/
-
