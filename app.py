@@ -30,7 +30,7 @@ auth_client = tweepy.Client(
 )
 
 # Settings
-DRY_RUN = int(os.getenv("DRY_RUN", "1"))
+DRY_RUN = int(os.getenv("DRY_RUN", "0"))
 MAX_TWEETS = int(os.getenv("MAX_TWEETS", "1"))
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
 HISTORY_FILE = "data/history.json"
