@@ -34,7 +34,8 @@ DRY_RUN = int(os.getenv("DRY_RUN", "1"))
 MAX_TWEETS = int(os.getenv("MAX_TWEETS", "1"))
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
 HISTORY_FILE = "data/history.json"
-MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", str(MAX_TWEETS * 5)))  # Kaç aday çekilsin
+MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", str(MAX_TWEETS * 5)))
+TWEETS_PER_DAY = int(os.getenv("TWEETS_PER_DAY", "3"))  # günlük tweet sayısı
 
 # SCImago CSV
 SCIMAGO_CSV = "scimago.csv"
@@ -78,9 +79,9 @@ def resolve_doi(doi):
         url = f"https://doi.org/{doi}"
         r = requests.get(url, timeout=10, allow_redirects=True)
         if r.status_code == 200:
-            return r.url  # final publisher page
+            return r.url
         else:
-            return url    # fallback
+            return url
     except Exception as e:
         print(f"[DOI Resolve Failed] {doi}: {e}")
         return f"https://doi.org/{doi}"
@@ -129,7 +130,6 @@ def pubmed_fetch(pmids, history):
         pmid = article.findtext(".//MedlineCitation/PMID")
         doi = article.findtext(".//ArticleIdList/ArticleId[@IdType='doi']")
 
-        # Prefer resolved publisher page if DOI exists
         if doi:
             link = resolve_doi(doi)
         elif pmid:
@@ -219,29 +219,27 @@ def main():
 
     history = load_history()
 
-    # 1. ERP first
+    # 1. ERP makaleleri önce kontrol et
     erp_records = fetch_erp_articles(history)
 
     if erp_records:
         print(f"[ERP] Found {len(erp_records)} new ERP article(s)")
-        # rastgele seç
-        q_records = random.sample(erp_records, min(MAX_TWEETS, len(erp_records)))
+        candidates = erp_records
     else:
-        # PubMed kısmı
+        # 2. PubMed’den makale bul
         pmids = pubmed_search(theme_query, retmax=MAX_CANDIDATES)
         records = pubmed_fetch(pmids, history)
-        filtered = filter_q_journals(records, history)
-        if filtered:
-            q_records = random.sample(filtered, min(MAX_TWEETS, len(filtered)))
-        else:
-            q_records = []
+        candidates = filter_q_journals(records, history)
 
-    if not q_records:
+    if not candidates:
         print("[Main] No new records found. Exiting.")
         return
 
+    # Günlük 3 farklı makale seç
+    q_records = random.sample(candidates, min(TWEETS_PER_DAY, len(candidates)))
+
     for e in q_records:
-        # History’yi önce güncelle ki aynı işlem tekrar seçilmesin
+        # History’yi önce güncelle ki tekrar seçilmesin
         history.add(e["link"])
         save_history(history)
 
@@ -256,8 +254,8 @@ def main():
             try:
                 res = auth_client.create_tweet(text=tweet_text)
                 print(f"✅ Tweet sent! ID: {res.data['id']}")
-            except Exception as e:
-                print(f"❌ Failed to tweet: {e}")
+            except Exception as ex:
+                print(f"❌ Failed to tweet: {ex}")
 
 if __name__ == "__main__":
     main()
