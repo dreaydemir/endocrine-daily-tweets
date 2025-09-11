@@ -52,12 +52,14 @@ def save_history(history):
         json.dump(list(history), f, ensure_ascii=False, indent=2)
 
 # ----------------- ERP RSS -----------------
-def fetch_erp_articles():
+def fetch_erp_articles(history):
     url = "https://endocrinolrespract.org/current-issue/rss"
     feed = feedparser.parse(url)
 
     records = []
     for entry in feed.entries:
+        if entry.link in history:
+            continue
         records.append({
             "title": entry.title,
             "journal": "Endocrinology Research and Practice",
@@ -66,6 +68,20 @@ def fetch_erp_articles():
             "quartile": "Q4"
         })
     return records
+
+# ----------------- DOI Resolver -----------------
+def resolve_doi(doi):
+    """Resolve DOI to publisher page instead of doi.org"""
+    try:
+        url = f"https://doi.org/{doi}"
+        r = requests.get(url, timeout=10, allow_redirects=True)
+        if r.status_code == 200:
+            return r.url  # final publisher page
+        else:
+            return url    # fallback
+    except Exception as e:
+        print(f"[DOI Resolve Failed] {doi}: {e}")
+        return f"https://doi.org/{doi}"
 
 # ----------------- PubMed API -----------------
 def pubmed_search(query, retmax=10):
@@ -90,7 +106,7 @@ def pubmed_search(query, retmax=10):
     r.raise_for_status()
     return r.json()["esearchresult"]["idlist"]
 
-def pubmed_fetch(pmids):
+def pubmed_fetch(pmids, history):
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
     params = {
         "db": "pubmed",
@@ -106,8 +122,21 @@ def pubmed_fetch(pmids):
         title = article.findtext(".//ArticleTitle")
         journal = article.findtext(".//Journal/Title")
         abstract = " ".join([t.text for t in article.findall(".//AbstractText") if t.text])
-        url_id = article.findtext(".//ArticleIdList/ArticleId[@IdType='doi']")
-        link = f"https://doi.org/{url_id}" if url_id else "https://pubmed.ncbi.nlm.nih.gov/"
+
+        pmid = article.findtext(".//MedlineCitation/PMID")
+        doi = article.findtext(".//ArticleIdList/ArticleId[@IdType='doi']")
+
+        # Prefer resolved publisher page if DOI exists
+        if doi:
+            link = resolve_doi(doi)
+        elif pmid:
+            link = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+        else:
+            link = "https://pubmed.ncbi.nlm.nih.gov/"
+
+        if link in history:
+            continue
+
         records.append({
             "title": title,
             "journal": journal,
@@ -117,12 +146,12 @@ def pubmed_fetch(pmids):
     return records
 
 # ----------------- SCImago Filtering -----------------
-def filter_q_journals(pubmed_entries):
+def filter_q_journals(pubmed_entries, history):
     filtered = []
     priority = []
 
     for e in pubmed_entries:
-        if not e["journal"]:
+        if not e["journal"] or e["link"] in history:
             continue
         journal_norm = e["journal"].lower().strip()
         row = df[df["Title_clean"] == journal_norm]
@@ -187,19 +216,16 @@ def main():
 
     history = load_history()
 
-    # 1. Check ERP first
-    erp_records = fetch_erp_articles()
-    new_erp = [r for r in erp_records if r["link"] not in history]
-
-    if new_erp:
+    # 1. ERP first
+    erp_records = fetch_erp_articles(history)
+    if erp_records:
         print("[ERP] Found new ERP article(s)")
-        q_records = new_erp[:MAX_TWEETS]
+        q_records = erp_records[:MAX_TWEETS]
     else:
-        # 2. If no new ERP → go to PubMed
+        # 2. Else PubMed
         pmids = pubmed_search(theme_query, retmax=MAX_TWEETS*5)
-        records = pubmed_fetch(pmids)
-        q_records = filter_q_journals(records)[:MAX_TWEETS]
-        q_records = [r for r in q_records if r["link"] not in history]
+        records = pubmed_fetch(pmids, history)
+        q_records = filter_q_journals(records, history)[:MAX_TWEETS]
 
     for e in q_records:
         gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
