@@ -189,30 +189,39 @@ Abstract: {abstract}
 Format as JSON:
 {{
  "conclusion": "short one-sentence conclusion",
- "findings": ["emoji + finding 1", "emoji + finding 2", "emoji + finding 3"]
+ "findings": ["emoji + finding 1", "emoji + finding 2", "emoji + finding 3"],
+ "question": "one short open-ended question in English to ask followers"
 }}
 """
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
+            temperature=0.6,  # biraz daha yaratıcılık için
             response_format={"type": "json_object"}
         )
         return json.loads(resp.choices[0].message.content)
     except Exception as e:
         print("GPT summarization failed:", e)
-        return {"conclusion": "No conclusion", "findings": []}
+        return {
+            "conclusion": "No conclusion",
+            "findings": [],
+            "question": "What do you think about this?"
+        }
 
 # ----------------- Tweet Builder -----------------
-def build_tweet(title, summary, findings, url, hashtags):
+def build_tweet(title, summary, findings, url, hashtags, question=None):
     text = f"📑 {title}\n\n"
     if summary:
         text += f"💡 {summary}\n\n"
     for f in findings:
         text += f"{f}\n"
     text += f"\n🔗 {url}\n{' '.join(hashtags)}"
+
+    if question:
+        text += f"\n\n❓ {question}"
     return text
+
 
 # ----------------- Main -----------------
 def main():
@@ -241,23 +250,30 @@ def main():
     q_records = random.sample(candidates, min(TWEETS_PER_DAY, len(candidates)))
 
     for e in q_records:
-        # History’yi önce güncelle ki tekrar seçilmesin
-        history.add(e["link"])
-        save_history(history)
+    # History’yi önce güncelle ki tekrar seçilmesin
+    history.add(e["link"])
+    save_history(history)
 
-        gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
-        tweet_text = build_tweet(e["title"], gpt["conclusion"], gpt["findings"], e["link"], hashtags)
+    gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
+    tweet_text = build_tweet(
+        e["title"],
+        gpt["conclusion"],
+        gpt["findings"],
+        e["link"],
+        hashtags,
+        question=gpt.get("question")
+    )
 
-        print("\n--- Tweet Preview ---\n")
-        print(tweet_text)
-        print("\n--- End Preview ---\n")
+    print("\n--- Tweet Preview ---\n")
+    print(tweet_text)
+    print("\n--- End Preview ---\n")
 
-        if DRY_RUN == 0:
-            try:
-                res = auth_client.create_tweet(text=tweet_text)
-                print(f"✅ Tweet sent! ID: {res.data['id']}")
-            except Exception as ex:
-                print(f"❌ Failed to tweet: {ex}")
+    if DRY_RUN == 0:
+        try:
+            res = auth_client.create_tweet(text=tweet_text)
+            print(f"✅ Tweet sent! ID: {res.data['id']}")
+        except Exception as ex:
+            print(f"❌ Failed to tweet: {ex}")
 
 if __name__ == "__main__":
     main()
