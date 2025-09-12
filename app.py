@@ -109,7 +109,6 @@ def pubmed_search(query, retmax=10):
     r.raise_for_status()
     return r.json()["esearchresult"]["idlist"]
 
-
 def pubmed_fetch(pmids, history):
     if not pmids:
         return []
@@ -222,7 +221,6 @@ def build_tweet(title, summary, findings, url, hashtags, question=None):
         text += f"\n\n❓ {question}"
     return text
 
-
 # ----------------- Main -----------------
 def main():
     theme_query, hashtags = today_theme()
@@ -250,30 +248,30 @@ def main():
     q_records = random.sample(candidates, min(TWEETS_PER_DAY, len(candidates)))
 
     for e in q_records:
-    # History’yi önce güncelle ki tekrar seçilmesin
-    history.add(e["link"])
-    save_history(history)
+        # History’yi önce güncelle ki tekrar seçilmesin
+        history.add(e["link"])
+        save_history(history)
 
-    gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
-    tweet_text = build_tweet(
-        e["title"],
-        gpt["conclusion"],
-        gpt["findings"],
-        e["link"],
-        hashtags,
-        question=gpt.get("question")
-    )
+        gpt = summarize_with_gpt(e["title"], e.get("abstract", ""))
+        tweet_text = build_tweet(
+            e["title"],
+            gpt["conclusion"],
+            gpt["findings"],
+            e["link"],
+            hashtags,
+            question=gpt.get("question")
+        )
 
-    print("\n--- Tweet Preview ---\n")
-    print(tweet_text)
-    print("\n--- End Preview ---\n")
+        print("\n--- Tweet Preview ---\n")
+        print(tweet_text)
+        print("\n--- End Preview ---\n")
 
-    if DRY_RUN == 0:
-        try:
-            res = auth_client.create_tweet(text=tweet_text)
-            print(f"✅ Tweet sent! ID: {res.data['id']}")
-        except Exception as ex:
-            print(f"❌ Failed to tweet: {ex}")
+        if DRY_RUN == 0:
+            try:
+                res = auth_client.create_tweet(text=tweet_text)
+                print(f"✅ Tweet sent! ID: {res.data['id']}")
+            except Exception as ex:
+                print(f"❌ Failed to tweet: {ex}")
 
 if __name__ == "__main__":
     main()
