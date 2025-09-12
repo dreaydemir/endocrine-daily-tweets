@@ -92,9 +92,10 @@ def pubmed_search(query, retmax=10):
 
     end_date = datetime.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
-    date_range = f'("{start_date.strftime("%Y/%m/%d")}"[Date - Publication] : "{end_date.strftime("%Y/%m/%d")}"[Date - Publication])'
+    # 📌 [Date - Publication] yerine [Date - Entrez] kullanalım
+    date_range = f'("{start_date.strftime("%Y/%m/%d")}"[Date - Entrez] : "{end_date.strftime("%Y/%m/%d")}"[Date - Entrez])'
 
-    term = f"{query} AND {date_range}"
+    term = f"({query}) AND {date_range}"
     print(f"[PubMed] Query: {term}")
 
     params = {
@@ -107,6 +108,7 @@ def pubmed_search(query, retmax=10):
     r = requests.get(url, params=params)
     r.raise_for_status()
     return r.json()["esearchresult"]["idlist"]
+
 
 def pubmed_fetch(pmids, history):
     if not pmids:
