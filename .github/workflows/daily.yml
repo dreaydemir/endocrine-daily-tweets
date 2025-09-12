@@ -34,6 +34,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DRY_RUN: "0"             # test için 1, gerçek tweet için 0
           TWEETS_PER_DAY: "1"      # her çalıştırmada 1 tweet atsın
-          LOOKBACK_DAYS: "90"
-          MAX_CANDIDATES: "10"
+          LOOKBACK_DAYS: "365"
+          MAX_CANDIDATES: "1000"
         run: python app.py
