@@ -36,6 +36,7 @@ LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "90"))
 HISTORY_FILE = "data/history.json"
 MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", str(MAX_TWEETS * 10)))
 TWEETS_PER_DAY = int(os.getenv("TWEETS_PER_DAY", "3"))  # günlük tweet sayısı
+PUBMED_BATCH_SIZE = int(os.getenv("PUBMED_BATCH_SIZE", "100"))
 
 # SCImago CSV
 SCIMAGO_CSV = "scimago.csv"
@@ -92,8 +93,8 @@ def pubmed_search(query, retmax=10):
 
     end_date = datetime.today()
     start_date = end_date - timedelta(days=LOOKBACK_DAYS)
-    # 📌 [Date - Publication] yerine [Date - Entrez] kullanalım
-    date_range = f'("{start_date.strftime("%Y/%m/%d")}"[Date - Entrez] : "{end_date.strftime("%Y/%m/%d")}"[Date - Entrez])'
+    # 📌 Publication Date filtresi
+    date_range = f'("{start_date.strftime("%Y/%m/%d")}"[dp] : "{end_date.strftime("%Y/%m/%d")}"[dp])'
 
     term = f"({query}) AND {date_range}"
     print(f"[PubMed] Query: {term}")
@@ -109,45 +110,49 @@ def pubmed_search(query, retmax=10):
     r.raise_for_status()
     return r.json()["esearchresult"]["idlist"]
 
-def pubmed_fetch(pmids, history):
+def pubmed_fetch(pmids, history, batch_size=PUBMED_BATCH_SIZE):
     if not pmids:
         return []
-    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-    params = {
-        "db": "pubmed",
-        "id": ",".join(pmids),
-        "retmode": "xml"
-    }
-    r = requests.get(url, params=params)
-    r.raise_for_status()
-    root = ElementTree.fromstring(r.content)
 
-    records = []
-    for article in root.findall(".//PubmedArticle"):
-        title = article.findtext(".//ArticleTitle")
-        journal = article.findtext(".//Journal/Title")
-        abstract = " ".join([t.text for t in article.findall(".//AbstractText") if t.text])
+    all_records = []
+    for i in range(0, len(pmids), batch_size):
+        batch = pmids[i:i + batch_size]
+        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        params = {
+            "db": "pubmed",
+            "id": ",".join(batch),
+            "retmode": "xml"
+        }
+        r = requests.get(url, params=params)
+        r.raise_for_status()
+        root = ElementTree.fromstring(r.content)
 
-        pmid = article.findtext(".//MedlineCitation/PMID")
-        doi = article.findtext(".//ArticleIdList/ArticleId[@IdType='doi']")
+        for article in root.findall(".//PubmedArticle"):
+            title = article.findtext(".//ArticleTitle")
+            journal = article.findtext(".//Journal/Title")
+            abstract = " ".join([t.text for t in article.findall(".//AbstractText") if t.text])
 
-        if doi:
-            link = resolve_doi(doi)
-        elif pmid:
-            link = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-        else:
-            link = "https://pubmed.ncbi.nlm.nih.gov/"
+            pmid = article.findtext(".//MedlineCitation/PMID")
+            doi = article.findtext(".//ArticleIdList/ArticleId[@IdType='doi']")
 
-        if link in history:
-            continue
+            if doi:
+                link = resolve_doi(doi)
+            elif pmid:
+                link = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+            else:
+                link = "https://pubmed.ncbi.nlm.nih.gov/"
 
-        records.append({
-            "title": title,
-            "journal": journal,
-            "abstract": abstract,
-            "link": link
-        })
-    return records
+            if link in history:
+                continue
+
+            all_records.append({
+                "title": title,
+                "journal": journal,
+                "abstract": abstract,
+                "link": link
+            })
+
+    return all_records
 
 # ----------------- SCImago Filtering -----------------
 def filter_q_journals(pubmed_entries, history):
@@ -196,7 +201,7 @@ Format as JSON:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.6,  # biraz daha yaratıcılık için
+            temperature=0.6,
             response_format={"type": "json_object"}
         )
         return json.loads(resp.choices[0].message.content)
