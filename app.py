@@ -32,9 +32,9 @@ auth_client = tweepy.Client(
 # Settings
 DRY_RUN = int(os.getenv("DRY_RUN", "0"))
 MAX_TWEETS = int(os.getenv("MAX_TWEETS", "1"))
-LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
+LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "90"))
 HISTORY_FILE = "data/history.json"
-MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", str(MAX_TWEETS * 5)))
+MAX_CANDIDATES = int(os.getenv("MAX_CANDIDATES", str(MAX_TWEETS * 10)))
 TWEETS_PER_DAY = int(os.getenv("TWEETS_PER_DAY", "3"))  # günlük tweet sayısı
 
 # SCImago CSV
@@ -204,7 +204,7 @@ Format as JSON:
 
 # ----------------- Tweet Builder -----------------
 def build_tweet(title, summary, findings, url, hashtags):
-    text = f"📑 {title.upper()}\n\n"
+    text = f"📑 {title}\n\n"
     if summary:
         text += f"💡 {summary}\n\n"
     for f in findings:
